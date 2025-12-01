@@ -1,5 +1,6 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.lang.TypeReference;
 import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
@@ -44,7 +45,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
 
     // 重试次数限制
-    private static final int MAX_RETRY = 30;
+    private static final int MAX_RETRY = 10;
 
     /**
      * 根据id查询店铺信息
@@ -75,8 +76,12 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         }
 
         // 3.反序列化shopJson,获取shop对象和过期时间
-        RedisData redisData = JSONUtil.toBean(shopJson, RedisData.class);
-        Shop shop = JSONUtil.toBean((JSONObject) redisData.getData(), Shop.class);
+        RedisData<Shop> redisData = JSONUtil.toBean(
+                shopJson,
+                new TypeReference<RedisData<Shop>>() {},
+                false
+        );
+        Shop shop = redisData.getData();
         LocalDateTime expireTime = redisData.getExpireTime();
 
         // 4.判断是否过期
@@ -89,13 +94,16 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             if (isLock) {
                 // 4.2.再次检测redis缓存是否过期（判断其它线程是否已重建，避免重复构建）
                 String newShopJson = stringRedisTemplate.opsForValue().get(CACHE_SHOP_KEY + id);
-                RedisData newRedisData = JSONUtil.toBean(newShopJson, RedisData.class);
+                RedisData<Shop> newRedisData = JSONUtil.toBean(
+                        newShopJson,
+                        new TypeReference<RedisData<Shop>>() {},
+                        false
+                );
                 if (newRedisData.getExpireTime().isAfter(LocalDateTime.now())) {
                     // 4.2.1释放锁
                     unlock(lockKey, lockValue);
                     // 4.2.2返回新数据
-                    Shop newShop = JSONUtil.toBean((JSONObject) newRedisData.getData(), Shop.class);
-                    return newShop;
+                    return newRedisData.getData();
                 }
 
                 // 4.3.线程池异步重建缓存
@@ -220,9 +228,9 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     public void saveShop2Redis(Long id, Long expireSeconds) throws InterruptedException {
         // 1.查询店铺数据
         Shop shop = getById(id);
-        Thread.sleep(100);
+        Thread.sleep(80);
         // 2.封装逻辑过期时间
-        RedisData redisData = new RedisData();
+        RedisData<Shop> redisData = new RedisData<>();
         redisData.setData(shop);
         redisData.setExpireTime(LocalDateTime.now().plusSeconds(expireSeconds));
         // 3.写入到缓存中

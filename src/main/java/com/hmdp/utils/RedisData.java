@@ -4,8 +4,10 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+// 泛型类：T 代表业务数据的类型（如 Shop、User 等）
 @Data
-public class RedisData {
-    private LocalDateTime expireTime;
-    private Object data;
+public class RedisData<T> {
+    private LocalDateTime expireTime; // 逻辑过期时间
+    // private Object data;
+    private T data; // 泛型业务数据（替代原 Object 类型）
 }
