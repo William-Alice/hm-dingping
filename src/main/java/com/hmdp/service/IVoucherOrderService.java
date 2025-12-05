@@ -19,4 +19,6 @@ public interface IVoucherOrderService extends IService<VoucherOrder> {
      * @return
      */
     Long seckillVoucher(Long voucherId);
+
+    Long createVoucherOrder(Long voucherId);
 }
