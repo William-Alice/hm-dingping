@@ -7,10 +7,12 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.DbDistributedLock;
 import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private IVoucherOrderService thisProxy;
     @Autowired
     private DbDistributedLock dbDistributedLock;
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     /**
      * 下单秒杀优惠券
@@ -61,10 +65,24 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return thisProxy.createVoucherOrder(voucherId);
         }*/
         // 用数据库分布式锁执行秒杀（锁key：业务+资源ID）
-        return dbDistributedLock.executeWithLock(
+        /*return dbDistributedLock.executeWithLock(
                 "seckill:voucher:" + voucherId + "user:id" + userId,
                 () -> thisProxy.createVoucherOrder(voucherId) // 秒杀业务逻辑
-        );
+        );*/
+        // 用redis分布式锁执行秒杀
+        SimpleRedisLock lock = new SimpleRedisLock(stringRedisTemplate, "order:" + userId);
+
+        boolean isLock = lock.tryLock(1200L);
+
+        if (!isLock) {
+            throw new RuntimeException("不允许重复下单");
+        }
+
+        try {
+            return thisProxy.createVoucherOrder(voucherId);
+        } finally {
+            lock.unLock();
+        }
     }
 
     @Transactional
