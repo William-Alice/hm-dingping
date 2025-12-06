@@ -5,6 +5,7 @@ import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.DbDistributedLock;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
@@ -32,13 +33,15 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private RedisIdWorker redisIdWorker;
     @Autowired
     private IVoucherOrderService thisProxy;
+    @Autowired
+    private DbDistributedLock dbDistributedLock;
 
     /**
      * 下单秒杀优惠券
      * @param voucherId
      * @return
      */
-    public Long seckillVoucher(Long voucherId) {
+    public Long seckillVoucher(Long voucherId) throws Exception {
         // 1.查询秒杀优惠券
         SeckillVoucher seckillVoucher = seckillVoucherServiceImpl.getById(voucherId);
         // 2.判断是否不在下单时间内
@@ -53,10 +56,15 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }*/
 
         Long userId = UserHolder.getUser().getId();
-        synchronized((userId.toString().intern())) {
+        /*synchronized((userId.toString().intern())) {
 //            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
             return thisProxy.createVoucherOrder(voucherId);
-        }
+        }*/
+        // 用数据库分布式锁执行秒杀（锁key：业务+资源ID）
+        return dbDistributedLock.executeWithLock(
+                "seckill:voucher:" + voucherId + "user:id" + userId,
+                () -> thisProxy.createVoucherOrder(voucherId) // 秒杀业务逻辑
+        );
     }
 
     @Transactional
